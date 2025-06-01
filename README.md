@@ -1,24 +1,25 @@
 # Python_Selenium_WebScraping
 
 ■ Seleniumのしくみ
-
-[ユーザーのPythonスクリプト]  
-       ↓  
-[Seleniumライブラリ（Pythonモジュール）]  
-       ↓  
-[WebDriver（ChromeDriver, MSEdgeDriverなど）]  
-       ↓  
+[ユーザーのPythonスクリプト]
+↓
+[Seleniumライブラリ（Pythonモジュール）]
+↓
+[WebDriver（ChromeDriver, MSEdgeDriverなど）]
+↓
 [ブラウザアプリ（Chrome, Edge, Firefox...）]
 
 ■ 活用例
-
-[ユーザーの日常UIからPythonファイル呼出]  
-       ↓  
-[PythonによるSelenium_Scraping]  
-       ↓  
-[CSVファイル・JPEGファイルを結果として出力]  
-       ↓  
+[ユーザーの日常UIからPythonファイル呼出]
+↓
+[Python(Selenium)_によるHTML取得（JavaScript含む）]
+↓
+[Beautiful SoupでHTML解析]
+↓
+[CSVファイル・JPEGファイルを結果として出力]
+↓
 [日常UIがファイルを取込]
+
 
 ■ 使用例
 
