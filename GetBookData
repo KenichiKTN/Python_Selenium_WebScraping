@@ -1,0 +1,109 @@
+import sys
+import time
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
+
+def scrape_book_by_isbn(isbn):
+    print(f"🔍 ISBN: {isbn}")
+    search_url = f"https://www.kinokuniya.co.jp/disp/CSfDispListPage_001.jsp?qs=true&ptk=07&q={isbn}"
+    options = webdriver.ChromeOptions()
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+
+    try:
+        driver.get(search_url)
+        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, 'list_area_wrap')))
+        print("✅ 検索結果ページを開きました")
+        item_wrap = driver.find_element(By.CLASS_NAME, 'list_area_wrap')
+        products = item_wrap.find_elements(By.CLASS_NAME, 'list_area')
+        if not products:
+            print("❌ 商品が見つかりませんでした")
+            driver.quit()
+            return
+        detail_link = products[0].find_element(By.CSS_SELECTOR, 'h3 a').get_attribute('href')
+        print(f"🔗 商品詳細ページに遷移: {detail_link}")
+        driver.get(detail_link)
+        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, 'h1')))
+        print("✅ 商品詳細ページを開きました")
+        try:
+            right_box = driver.find_element(By.CLASS_NAME, "right_box")
+            try:
+                title = right_box.find_element(By.CSS_SELECTOR, 'h3[itemprop="name"]').text.strip()
+            except:
+                title = "タイトルなし"
+            try:
+                infobox = right_box.find_element(By.CLASS_NAME, "infobox")
+                list_items = infobox.find_elements(By.TAG_NAME, "li")
+                author = list_items[0].find_element(By.TAG_NAME, "a").text.strip() if list_items else "著者なし"
+                publisher = "出版社情報なし"
+                price = "価格情報なし"
+                points = "ポイント情報なし"
+                for li in list_items:
+                    text = li.text.strip()
+                    if "社" in text:
+                        if "（" in text:
+                            publisher = text.split("（")[0].strip()
+                        else:
+                            publisher = text
+                    elif "価格" in text:
+                        try:
+                            price = li.find_element(By.TAG_NAME, "span").text.strip()
+                        except:
+                            price = text
+                    elif "ポイント" in text:
+                        try:
+                            points = li.find_element(By.CLASS_NAME, "redhot").text.strip()
+                        except:
+                            points = text
+            except:
+                author = "著者情報なし"
+                publisher = "出版社情報なし"
+                price = "価格情報なし"
+                points = "ポイント情報なし"
+        except:
+            title = "タイトルなし"
+            author = "著者情報なし"
+            publisher = "出版社情報なし"
+            price = "価格情報なし"
+            points = "ポイント情報なし"
+        try:
+            career_box = driver.find_element(By.CLASS_NAME, "career_box")
+            h3s = career_box.find_elements(By.TAG_NAME, "h3")
+            ps = career_box.find_elements(By.TAG_NAME, "p")
+            pub_info = "出版社内容情報なし"
+            description = "内容説明なし"
+            toc = "目次なし"
+            for i in range(len(h3s)):
+                heading = h3s[i].text.strip()
+                paragraph = ps[i].text.strip() if i < len(ps) else ""
+                if heading == "出版社内容情報":
+                    pub_info = paragraph
+                elif heading == "内容説明":
+                    description = paragraph
+                elif heading == "目次":
+                    toc = paragraph
+        except:
+            pub_info = "出版社内容情報なし"
+            description = "内容説明なし"
+            toc = "目次なし"
+        print("📘 タイトル:", title)
+        print("✍️ 著者:", author)
+        print("🏢 出版社:", publisher)
+        print("💴 価格:", price)
+        print("🎁 ポイント:", points)
+        print("🏷️ 出版社内容情報:", pub_info)
+        print("📝 内容説明:", description)
+        print("📑 目次:", toc)
+    except Exception as e:
+        print(f"⚠️ エラー発生: {e}")
+    finally:
+        input("⏸️ Enterでブラウザを閉じます...")
+        driver.quit()
+
+if __name__ == "__main__":
+    DEFAULT_ISBN = "9784478026601"
+    isbn = sys.argv[1] if len(sys.argv) >= 2 else DEFAULT_ISBN
+    scrape_book_by_isbn(isbn)
