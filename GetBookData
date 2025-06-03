@@ -1,5 +1,7 @@
 import sys
-import time
+import csv
+import os
+import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
@@ -8,101 +10,174 @@ from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
 def scrape_book_by_isbn(isbn):
-    print(f"🔍 ISBN: {isbn}")
+    print(f"ISBN: {isbn}")
+
+    # 紀伊國屋書店の検索URLを作成
     search_url = f"https://www.kinokuniya.co.jp/disp/CSfDispListPage_001.jsp?qs=true&ptk=07&q={isbn}"
+
+    # ChromeのWebDriverを起動
     options = webdriver.ChromeOptions()
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
+    # 出力先：ユーザーの「ダウンロード」フォルダ
+    downloads_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+    os.makedirs(downloads_dir, exist_ok=True)
+
+    # 書籍情報の初期値を辞書に格納
+    book_info = {
+        "ISBN": isbn,
+        "タイトル": "タイトルなし",
+        "著者": "著者情報なし",
+        "出版社": "出版社情報なし",
+        "価格": "価格情報なし",
+        "ポイント": "ポイント情報なし",
+        "出版社内容情報": "出版社内容情報なし",
+        "内容説明": "内容説明なし",
+        "目次": "目次なし"
+    }
+
     try:
+        # 書籍検索ページを開く
         driver.get(search_url)
+
+        # 検索結果が表示されるまで待機（最大10秒）
         WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, 'list_area_wrap')))
-        print("✅ 検索結果ページを開きました")
+        print("検索結果ページを開きました")
+
+        # 検索結果一覧を取得
         item_wrap = driver.find_element(By.CLASS_NAME, 'list_area_wrap')
         products = item_wrap.find_elements(By.CLASS_NAME, 'list_area')
+
+        # 該当商品がない場合は終了
         if not products:
-            print("❌ 商品が見つかりませんでした")
+            print("商品が見つかりませんでした")
             driver.quit()
             return
+
+        # 最初の検索結果の詳細ページリンクを取得
         detail_link = products[0].find_element(By.CSS_SELECTOR, 'h3 a').get_attribute('href')
-        print(f"🔗 商品詳細ページに遷移: {detail_link}")
+        print(f"商品詳細ページに遷移: {detail_link}")
         driver.get(detail_link)
+
+        # 詳細ページの読み込みを待機
         WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, 'h1')))
-        print("✅ 商品詳細ページを開きました")
+        print("商品詳細ページを開きました")
+
+        # 書影画像を取得して保存
+        try:
+            left_box = driver.find_element(By.CLASS_NAME, "left_box")
+            img_tag = left_box.find_element(By.TAG_NAME, "img")
+            img_url = img_tag.get_attribute("src")
+            if img_url:
+                image_path = os.path.join(downloads_dir, f"{isbn}.jpg")
+                download_image(img_url, image_path)
+                print(f"画像を保存しました: {image_path}")
+        except Exception as e:
+            print(f"画像の取得に失敗しました: {e}")
+
+        # 右側の書誌情報を取得（タイトル、著者、出版社、価格、ポイントなど）
         try:
             right_box = driver.find_element(By.CLASS_NAME, "right_box")
+
+            # タイトル
             try:
-                title = right_box.find_element(By.CSS_SELECTOR, 'h3[itemprop="name"]').text.strip()
+                book_info["タイトル"] = right_box.find_element(By.CSS_SELECTOR, 'h3[itemprop="name"]').text.strip()
             except:
-                title = "タイトルなし"
+                pass
+
+            # 書誌情報一覧（著者、出版社、価格、ポイント）
             try:
                 infobox = right_box.find_element(By.CLASS_NAME, "infobox")
                 list_items = infobox.find_elements(By.TAG_NAME, "li")
-                author = list_items[0].find_element(By.TAG_NAME, "a").text.strip() if list_items else "著者なし"
-                publisher = "出版社情報なし"
-                price = "価格情報なし"
-                points = "ポイント情報なし"
+
+                # 著者（通常は最初の<li>にある）
+                if list_items:
+                    try:
+                        book_info["著者"] = list_items[0].find_element(By.TAG_NAME, "a").text.strip()
+                    except:
+                        pass
+
+                # 各<li>から出版社・価格・ポイントを抽出
                 for li in list_items:
                     text = li.text.strip()
-                    if "社" in text:
-                        if "（" in text:
-                            publisher = text.split("（")[0].strip()
-                        else:
-                            publisher = text
+
+                    # 出版社（発売日と結合している可能性に備え分割）
+                    if "社" in text and "価格" not in text and "ポイント" not in text:
+                        publisher_candidate = text.split("（")[0].strip()
+                        if publisher_candidate:
+                            book_info["出版社"] = publisher_candidate
+
+                    # 価格
                     elif "価格" in text:
                         try:
-                            price = li.find_element(By.TAG_NAME, "span").text.strip()
+                            book_info["価格"] = li.find_element(By.TAG_NAME, "span").text.strip()
                         except:
-                            price = text
+                            book_info["価格"] = text
+
+                    # ポイント
                     elif "ポイント" in text:
                         try:
-                            points = li.find_element(By.CLASS_NAME, "redhot").text.strip()
+                            book_info["ポイント"] = li.find_element(By.CLASS_NAME, "redhot").text.strip()
                         except:
-                            points = text
+                            book_info["ポイント"] = text
             except:
-                author = "著者情報なし"
-                publisher = "出版社情報なし"
-                price = "価格情報なし"
-                points = "ポイント情報なし"
+                pass
         except:
-            title = "タイトルなし"
-            author = "著者情報なし"
-            publisher = "出版社情報なし"
-            price = "価格情報なし"
-            points = "ポイント情報なし"
+            pass
+
+        # 出版社内容情報・内容説明・目次を取得
         try:
             career_box = driver.find_element(By.CLASS_NAME, "career_box")
             h3s = career_box.find_elements(By.TAG_NAME, "h3")
             ps = career_box.find_elements(By.TAG_NAME, "p")
-            pub_info = "出版社内容情報なし"
-            description = "内容説明なし"
-            toc = "目次なし"
+
             for i in range(len(h3s)):
                 heading = h3s[i].text.strip()
                 paragraph = ps[i].text.strip() if i < len(ps) else ""
+
                 if heading == "出版社内容情報":
-                    pub_info = paragraph
+                    book_info["出版社内容情報"] = paragraph
                 elif heading == "内容説明":
-                    description = paragraph
+                    book_info["内容説明"] = paragraph
                 elif heading == "目次":
-                    toc = paragraph
+                    book_info["目次"] = paragraph
         except:
-            pub_info = "出版社内容情報なし"
-            description = "内容説明なし"
-            toc = "目次なし"
-        print("📘 タイトル:", title)
-        print("✍️ 著者:", author)
-        print("🏢 出版社:", publisher)
-        print("💴 価格:", price)
-        print("🎁 ポイント:", points)
-        print("🏷️ 出版社内容情報:", pub_info)
-        print("📝 内容説明:", description)
-        print("📑 目次:", toc)
+            pass
+
+        # 書誌情報をSHIFT-JISでCSV保存（ダウンロードフォルダ）
+        csv_path = os.path.join(downloads_dir, f"{isbn}.csv")
+        save_to_csv(book_info, filename=csv_path)
+        print(f"CSVを保存しました: {csv_path}")
+
+        # コンソール出力
+        for key, value in book_info.items():
+            print(f"{key}: {value}")
+
     except Exception as e:
-        print(f"⚠️ エラー発生: {e}")
+        print(f"エラー発生: {e}")
+
     finally:
-        input("⏸️ Enterでブラウザを閉じます...")
+        # ブラウザを閉じる（Enter待ち不要）
         driver.quit()
 
+# 書籍情報をSHIFT-JISでCSV保存（上書きモード）
+def save_to_csv(book_info, filename):
+    with open(filename, mode="w", encoding="shift_jis", newline="") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=book_info.keys())
+        writer.writeheader()
+        writer.writerow(book_info)
+
+# 書影画像をダウンロードして保存
+def download_image(url, filepath):
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        with open(filepath, "wb") as f:
+            f.write(response.content)
+    except Exception as e:
+        print(f"画像のダウンロードに失敗しました: {e}")
+
+# コマンドライン引数からISBNを取得（なければデフォルト）
 if __name__ == "__main__":
     DEFAULT_ISBN = "9784478026601"
     isbn = sys.argv[1] if len(sys.argv) >= 2 else DEFAULT_ISBN
